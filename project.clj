@@ -1,4 +1,4 @@
-(defproject org.clojars.mikejs/ring-mongrel2-adapter "0.2.5-SNAPSHOT"
+(defproject org.clojars.ctdean/ring-mongrel2-adapter "0.2.6-SNAPSHOT"
   :description "Ring Mongrel2 adapter."
   :dependencies [[org.clojure/clojure "1.3.0"]
                  [commons-logging "1.1.1"]
