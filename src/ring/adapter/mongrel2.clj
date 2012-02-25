@@ -3,9 +3,10 @@
            (org.apache.commons.httpclient HttpStatus)
            (java.io File InputStream ByteArrayOutputStream
                     ByteArrayInputStream))
-  (:use clojure.contrib.json
-        [clojure.contrib.io :only (copy)]
-        [clojure.contrib.except :only (throwf)]))
+  (:use clojure.data.json
+        [clojure.java.io :only (copy)]))
+
+(def ^{:private true} empty-bytes (byte-array 0))
 
 (defn- parse-netstring [s]
   (let [parts (.split s ":" 2)
@@ -66,7 +67,7 @@ and a map of HTTP headers."
                                            (.close body))
           (instance? File body) (copy body body-stream)
           (nil? body) 1
-          :else (throwf "Unrecognized body: %s" body))
+          :else (throw (new Exception (format "Unrecognized body: %s" body))))
     (copy (str "HTTP/1.1 " status " " phrase
                "\r\nContent-Length: " (.size body-stream)
                "\r\n" header-str "\r\n")
@@ -81,14 +82,23 @@ and a map of HTTP headers."
         recv-spec (or (:recv-spec options) "tcp://127.0.0.1:5566")
         send-spec (or (:send-spec options) "tcp://127.0.0.1:5565")]
     (.connect sub recv-spec)
-    (.setsockopt sub ZMQ/SUBSCRIBE "")
+    (.subscribe sub empty-bytes)
     (.connect pub send-spec)
+    (when (:timeout options)
+      ;; Set the timeout so the thread can be interrupted
+      (.setReceiveTimeOut sub (:timeout options)))
     (while (not (.isInterrupted (Thread/currentThread)))
-      (let [req (parse-m2-request (String. (.recv sub 0)))
-            ids (make-netstring (:client-id req))
-            response (ByteArrayOutputStream.)]
-        (if (not (= ((req :headers) "METHOD") "JSON"))
-          (do
-            (copy (str (:uuid req) " " ids " ") response)
-            (copy (make-http-reply (handler req)) response)
-            (.send pub (.toByteArray response) 0)))))))
+      (let [buf (.recv sub 0)]
+        (when (seq buf)                 ; Check for timeout
+          (let [req (parse-m2-request (String. buf))
+                ids (make-netstring (:client-id req))
+                response (ByteArrayOutputStream.)]
+            (if (not (= ((req :headers) "METHOD") "JSON"))
+                (do
+                  (copy (str (:uuid req) " " ids " ") response)
+                  (copy (make-http-reply (handler req)) response)
+                  (.send pub (.toByteArray response) 0)))))))
+    ;; Close the connections
+    (.close pub)
+    (.close sub)
+    (.term ctx)))
